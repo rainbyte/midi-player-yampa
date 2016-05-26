@@ -1,0 +1,48 @@
+name:                midi-player
+version:             0.1.0.0
+synopsis:            A simple midi player
+description:         Please see README.md
+homepage:            https://github.com/rainbyte/midi-player#readme
+license:             GPL-3
+license-file:        LICENSE
+author:              Alvaro Fernando García
+maintainer:          alvarofernandogarcia@gmail.com
+copyright:           2016 Alvaro Fernando García
+category:            Multimedia
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Sound.MidiPlayer
+  build-depends:       base >= 4.7 && < 5
+                     , event-list
+                     , midi
+                     , Yampa
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+executable midi-player-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  build-depends:       base
+                     , midi
+                     , midi-player
+                     , time
+                     , Yampa
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+test-suite midi-player-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , midi-player
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/rainbyte/midi-player
