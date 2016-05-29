@@ -13,7 +13,7 @@ import qualified Sound.MIDI.File as MidiFile
 import qualified Sound.MIDI.File.Event as MidiFile.Event
 
 type MidiCmd = MidiFile.Event.T
-data UICmd = LoadMidi MidiFile.T | PlayPause | Stop
+data UICmd = LoadMidi !MidiFile.T | PlayPause | Stop | NoCmd
   deriving Show
 
 type MidiEvent = Event MidiCmd
@@ -23,23 +23,26 @@ midiPlayer :: SF UIEvent MidiEvent
 midiPlayer = initial
 
 initial :: SF UIEvent MidiEvent
-initial = switch (arr trigger) stopped
+initial = switch (arr trigger) id
   where
-    trigger :: UIEvent -> (MidiEvent, Event MidiFile.T)
+    trigger :: UIEvent -> (MidiEvent, Event (SF UIEvent MidiEvent))
     trigger uiEv =
-      let e = case fromEvent uiEv of
-                LoadMidi file -> Event file
-                _ -> NoEvent
-      in (NoEvent, e)
+      case fromEvent uiEv of
+        LoadMidi file -> (NoEvent, Event $ stopped file)
+        _ -> (NoEvent, NoEvent)
 
-playing :: MidiFile.T -> SF UIEvent (Event MidiCmd)
-playing file = kSwitch (midiStep file) (arr trigger) (flip const)
+playing :: MidiFile.T -> SF UIEvent MidiEvent
+playing file = dkSwitch sf (arr trigger >>> notYet) (flip const)
   where
+    sf = proc uiEv -> do
+      midiEv <- midiStep file -< uiEv
+      returnA -< midiEv -- Event $ MidiFile.Event.MetaEvent $ Meta.TrackName "lala.mid")
     trigger (uiEv, _) =
       case fromEvent uiEv of
         LoadMidi newFile -> Event $ stopped newFile
         PlayPause -> Event $ paused file
         Stop -> Event $ stopped file
+        _ -> NoEvent
 
 midiStep :: MidiFile.T -> SF UIEvent (Event MidiCmd)
 midiStep (MidiFile.Cons midiType _ tracks) =
@@ -49,7 +52,7 @@ midiStep (MidiFile.Cons midiType _ tracks) =
   in afterEach timedEvents
 
 stopped :: MidiFile.T -> SF UIEvent MidiEvent
-stopped file = dSwitch (arr trigger) id
+stopped file = dSwitch (arr trigger >>> (notYet *** notYet)) id
   where
     trigger uiEv =
       case fromEvent uiEv of
@@ -58,10 +61,11 @@ stopped file = dSwitch (arr trigger) id
         _ -> (NoEvent, NoEvent)
 
 paused :: MidiFile.T -> SF UIEvent MidiEvent
-paused file = kSwitch never (arr trigger) (flip const)
+paused file = dkSwitch never (arr trigger >>> notYet) (flip const)
   where
     trigger (uiEv, _) =
       case fromEvent uiEv of
         LoadMidi newFile -> Event $ stopped newFile
         PlayPause -> Event $ playing file
         Stop -> Event $ stopped file
+        _ -> NoEvent

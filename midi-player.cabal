@@ -27,6 +27,7 @@ executable midi-player-exe
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       base
+                     , event-list
                      , midi
                      , midi-player
                      , time
