@@ -19,6 +19,8 @@ library
   build-depends:       base >= 4.7 && < 5
                      , event-list
                      , midi
+                     , midi-portmidi
+                     , PortMidi
                      , Yampa
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
@@ -30,6 +32,7 @@ executable midi-player-exe
                      , event-list
                      , midi
                      , midi-player
+                     , PortMidi
                      , time
                      , Yampa
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N

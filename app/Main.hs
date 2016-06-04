@@ -16,14 +16,34 @@ import qualified Sound.MIDI.Message.Channel       as ChannelMsg
 import Data.EventList.Relative.MixedBody ((/.), (./), )
 import qualified Data.EventList.Relative.TimeBody as EventList
 
+import qualified Sound.PortMidi as PM
+import           System.Exit
+
 initialize :: IO UIEvent
 initialize = putStrLn "Initialize" >> pure (Event Stop)
 
-outputActuate :: Bool -> MidiEvent -> IO Bool
-outputActuate _ res = do
-  when (res /= NoEvent) $
-    putStrLn ("Output: " ++ show res)
-  pure False
+outputActuate :: QSem -> PM.PMStream -> Bool -> MidiEvent -> IO Bool
+outputActuate streamSem stream _ res =
+  case res of
+    Event msgs ->
+      foldM handleMsg False msgs
+    NoEvent ->
+      pure False
+  where
+    handleMsg True _ = pure True -- stop reactimate
+    handleMsg False eMsg = case eMsg of
+      Right msg -> do
+        waitQSem streamSem
+        err <- PM.writeShort stream (PM.PMEvent (PM.encodeMsg msg) 0)
+        signalQSem streamSem
+        if err /= PM.NoError then do
+          putStrLn $ "Error: " ++ show err
+          pure True
+        else
+          pure False
+      Left str -> do
+        putStrLn ("Output: " ++ str)
+        pure False
 
 askCmd :: MVar UICmd -> IO ()
 askCmd cmdVar = forever $ do
@@ -67,6 +87,24 @@ midiExample =
 
 main :: IO ()
 main = do
+  _ <- PM.initialize
+  deviceCount <- PM.countDevices
+  putStrLn "Output devices:"
+  forM_ [0..deviceCount - 1] $ \deviceId -> do
+    info <- PM.getDeviceInfo deviceId
+    when (PM.output info) $
+      putStrLn $ "  " ++ show deviceId ++ ". " ++ PM.name info
+  putStr "Select: "
+  selectedId <- readLn :: IO Int
+  eStream <- PM.openOutput selectedId 0
+  case eStream of
+    Left stream -> mainYampa stream
+    Right err -> do
+      _ <- error $ show err
+      exitFailure
+
+mainYampa :: PM.PMStream -> IO ()
+mainYampa stream = do
   cmdVar <- newEmptyMVar
   _ <- forkIO $ askCmd cmdVar
   t <- getCurrentTime
@@ -80,4 +118,8 @@ main = do
         mCmd <- tryTakeMVar cmdVar
         let cmd = fromMaybe NoCmd mCmd
         pure (realToFrac dt, Just $ Event cmd)
-  reactimate initialize inputSense outputActuate midiPlayer
+  semStream <- newQSem 1
+  reactimate initialize inputSense (outputActuate semStream stream) midiPlayer
+  _ <- PM.close stream
+  _ <- PM.terminate
+  exitSuccess

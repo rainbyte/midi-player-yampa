@@ -1,4 +1,5 @@
 {-# LANGUAGE Arrows #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Sound.MidiPlayer
     ( UIEvent
@@ -8,11 +9,11 @@ module Sound.MidiPlayer
     ) where
 
 import           FRP.Yampa
-import qualified Data.EventList.Relative.TimeBody as EventList
 import qualified Sound.MIDI.File as MidiFile
-import qualified Sound.MIDI.File.Event as MidiFile.Event
+import qualified Sound.MIDI.PortMidi as MidiPM
+import qualified Sound.PortMidi as PM
 
-type MidiCmd = MidiFile.Event.T
+type MidiCmd = [Either String PM.PMMsg]
 data UICmd = LoadMidi !MidiFile.T | PlayPause | Stop | NoCmd
   deriving Show
 
@@ -45,14 +46,12 @@ playing file = dkSwitch sf (arr trigger >>> notYet) (flip const)
         _ -> NoEvent
 
 midiStep :: MidiFile.T -> SF UIEvent (Event MidiCmd)
-midiStep (MidiFile.Cons midiType _ tracks) =
-  let midiEvents = EventList.toPairList $ MidiFile.mergeTracks midiType tracks
-      fromETimePair = first (fromIntegral . MidiFile.fromElapsedTime)
-      timedEvents = fmap fromETimePair midiEvents
-  in afterEach timedEvents
+midiStep !midiFile =
+  let pairs = MidiPM.fromMidiFileRelative midiFile
+  in afterEachCat . fmap (first fromRational) $ pairs
 
 stopped :: MidiFile.T -> SF UIEvent MidiEvent
-stopped file = dSwitch (arr trigger >>> (notYet *** notYet)) id
+stopped file = switch (arr trigger >>> (notYet *** notYet)) id
   where
     trigger uiEv =
       case fromEvent uiEv of
