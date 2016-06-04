@@ -37,7 +37,7 @@ playing file = dkSwitch sf (arr trigger >>> notYet) (flip const)
   where
     sf = proc uiEv -> do
       midiEv <- midiStep file -< uiEv
-      returnA -< midiEv -- Event $ MidiFile.Event.MetaEvent $ Meta.TrackName "lala.mid")
+      returnA -< midiEv
     trigger (uiEv, _) =
       case fromEvent uiEv of
         LoadMidi newFile -> Event $ stopped newFile
