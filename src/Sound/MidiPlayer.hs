@@ -8,6 +8,7 @@ module Sound.MidiPlayer
     , midiPlayer
     ) where
 
+import           Data.Maybe
 import           FRP.Yampa
 import qualified Sound.MIDI.File as MidiFile
 import qualified Sound.MIDI.PortMidi as MidiPM
@@ -32,18 +33,20 @@ initial = switch (arr trigger) id
         LoadMidi file -> (NoEvent, Event $ stopped file)
         _ -> (NoEvent, NoEvent)
 
-playing :: MidiFile.T -> SF UIEvent MidiEvent
-playing file = dkSwitch sf (arr trigger >>> notYet) (flip const)
+playing :: MidiFile.T -> Maybe (SF UIEvent MidiEvent) -> SF UIEvent MidiEvent
+playing file mCont =
+  dkSwitch (fromMaybe sf mCont) (arr trigger >>> notYet) nextSF
   where
     sf = proc uiEv -> do
       midiEv <- midiStep file -< uiEv
       returnA -< midiEv
     trigger (uiEv, _) =
       case fromEvent uiEv of
-        LoadMidi newFile -> Event $ stopped newFile
+        LoadMidi newFile -> Event $ const (stopped newFile)
         PlayPause -> Event $ paused file
-        Stop -> Event $ stopped file
+        Stop -> Event $ const (stopped file)
         _ -> NoEvent
+    nextSF cont f = f cont
 
 midiStep :: MidiFile.T -> SF UIEvent (Event MidiCmd)
 midiStep !midiFile =
@@ -56,15 +59,15 @@ stopped file = switch (arr trigger >>> (notYet *** notYet)) id
     trigger uiEv =
       case fromEvent uiEv of
         LoadMidi newFile -> (NoEvent, Event $ stopped newFile)
-        PlayPause -> (NoEvent, Event $ playing file)
+        PlayPause -> (NoEvent, Event $ playing file Nothing)
         _ -> (NoEvent, NoEvent)
 
-paused :: MidiFile.T -> SF UIEvent MidiEvent
-paused file = dkSwitch never (arr trigger >>> notYet) (flip const)
+paused :: MidiFile.T -> SF UIEvent MidiEvent -> SF UIEvent MidiEvent
+paused file cont = dkSwitch never (arr trigger >>> notYet) (flip const)
   where
     trigger (uiEv, _) =
       case fromEvent uiEv of
         LoadMidi newFile -> Event $ stopped newFile
-        PlayPause -> Event $ playing file
+        PlayPause -> Event $ playing file (Just cont)
         Stop -> Event $ stopped file
         _ -> NoEvent
