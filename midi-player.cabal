@@ -29,7 +29,8 @@ executable midi-player-exe
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       base
-                     , event-list
+                     , bytestring
+                     , directory
                      , midi
                      , midi-player
                      , PortMidi
