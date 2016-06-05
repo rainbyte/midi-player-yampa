@@ -14,11 +14,11 @@ import qualified Sound.MIDI.File as MidiFile
 import qualified Sound.MIDI.PortMidi as MidiPM
 import qualified Sound.PortMidi as PM
 
-type MidiCmd = [Either String PM.PMMsg]
+type MidiCmd = Either String PM.PMMsg
 data UICmd = LoadMidi !MidiFile.T | PlayPause | Stop | NoCmd
   deriving Show
 
-type MidiEvent = Event MidiCmd
+type MidiEvent = Event [MidiCmd]
 type UIEvent = Event UICmd
 
 midiPlayer :: SF UIEvent MidiEvent
@@ -48,7 +48,7 @@ playing file mCont =
         _ -> NoEvent
     nextSF cont f = f cont
 
-midiStep :: MidiFile.T -> SF UIEvent (Event MidiCmd)
+midiStep :: MidiFile.T -> SF UIEvent MidiEvent
 midiStep !midiFile =
   let pairs = MidiPM.fromMidiFileRelative midiFile
   in afterEachCat . fmap (first fromRational) $ pairs
