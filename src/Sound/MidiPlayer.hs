@@ -40,11 +40,13 @@ initial = switch (arr trigger) nextSF
     nextSF f = f never
 
 playing :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
-playing file sf = dkSwitch sf (arr trigger >>> notYet) nextSF
+playing file sf = kSwitch sf (arr trigger >>> notYet) nextSF
   where
     trigger (_, Event (PlayerOutput _ True)) = transition (Playing file) Stop
     trigger (uiEv, _) = transition (Playing file) (fromEvent uiEv)
-    nextSF oldSF f = f oldSF
+    nextSF oldSF f = notesOff --> f oldSF
+    notesOff = Event $
+      PlayerOutput [Right $ PM.PMMsg (0xB0 + n) 0x7B 0 | n <- [0..15]] False
 
 midiStep :: MidiFile.T -> SF UIEvent PlayerEvent
 midiStep !midiFile =
