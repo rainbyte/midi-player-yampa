@@ -24,14 +24,14 @@ data UICmd = LoadMidi !MidiFile.T | PlayPause | Stop | NoCmd
 type MidiEvent = Event [MidiCmd]
 type UIEvent = Event UICmd
 
-data PlayerCmd = PlayerOutput [MidiCmd]
+data PlayerCmd = PlayerOutput [MidiCmd] Bool
 type PlayerEvent = Event PlayerCmd
 
 midiPlayer :: SF UIEvent MidiEvent
 midiPlayer = initial >>> arr (mapFilterE fromPlayerEvent)
   where
     fromPlayerEvent x = case x of
-      PlayerOutput midiCmds -> Just midiCmds
+      PlayerOutput midiCmds _ -> Just midiCmds
 
 initial :: SF UIEvent PlayerEvent
 initial = switch (arr trigger) nextSF
@@ -42,14 +42,18 @@ initial = switch (arr trigger) nextSF
 playing :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
 playing file sf = dkSwitch sf (arr trigger >>> notYet) nextSF
   where
+    trigger (_, Event (PlayerOutput _ True)) = transition (Playing file) Stop
     trigger (uiEv, _) = transition (Playing file) (fromEvent uiEv)
     nextSF oldSF f = f oldSF
 
 midiStep :: MidiFile.T -> SF UIEvent PlayerEvent
 midiStep !midiFile =
   let pairs = MidiPM.fromMidiFileRelative midiFile
-  in (afterEachCat . fmap (first fromRational) $ pairs)
-     >>> arr (fmap PlayerOutput)
+  in proc _ -> do
+    midiMsgs <- afterEachCat . fmap (first fromRational) $ pairs -< ()
+    remainingMsgs <- accumBy (\n l -> n - length l) (length pairs) -< midiMsgs
+    let stop = event False (<=0) remainingMsgs
+    returnA -< event NoEvent (\x -> Event $ PlayerOutput x stop) midiMsgs
 
 stopped :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
 stopped file _ = switch (arr trigger >>> (notYet *** notYet)) nextSF
