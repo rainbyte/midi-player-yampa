@@ -24,33 +24,40 @@ data UICmd = LoadMidi !MidiFile.T | PlayPause | Stop | NoCmd
 type MidiEvent = Event [MidiCmd]
 type UIEvent = Event UICmd
 
-midiPlayer :: SF UIEvent MidiEvent
-midiPlayer = initial
+data PlayerCmd = PlayerOutput [MidiCmd]
+type PlayerEvent = Event PlayerCmd
 
-initial :: SF UIEvent MidiEvent
+midiPlayer :: SF UIEvent MidiEvent
+midiPlayer = initial >>> arr (mapFilterE fromPlayerEvent)
+  where
+    fromPlayerEvent x = case x of
+      PlayerOutput midiCmds -> Just midiCmds
+
+initial :: SF UIEvent PlayerEvent
 initial = switch (arr trigger) nextSF
   where
     trigger uiEv = (NoEvent, transition Initial (fromEvent uiEv))
     nextSF f = f never
 
-playing :: MidiFile.T -> SF UIEvent MidiEvent -> SF UIEvent MidiEvent
+playing :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
 playing file sf = dkSwitch sf (arr trigger >>> notYet) nextSF
   where
     trigger (uiEv, _) = transition (Playing file) (fromEvent uiEv)
     nextSF oldSF f = f oldSF
 
-midiStep :: MidiFile.T -> SF UIEvent MidiEvent
+midiStep :: MidiFile.T -> SF UIEvent PlayerEvent
 midiStep !midiFile =
   let pairs = MidiPM.fromMidiFileRelative midiFile
-  in afterEachCat . fmap (first fromRational) $ pairs
+  in (afterEachCat . fmap (first fromRational) $ pairs)
+     >>> arr (fmap PlayerOutput)
 
-stopped :: MidiFile.T -> SF UIEvent MidiEvent -> SF UIEvent MidiEvent
+stopped :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
 stopped file _ = switch (arr trigger >>> (notYet *** notYet)) nextSF
   where
     trigger uiEv = (NoEvent, transition (Stopped file) (fromEvent uiEv))
     nextSF f = f (midiStep file)
 
-paused :: MidiFile.T -> SF UIEvent MidiEvent -> SF UIEvent MidiEvent
+paused :: MidiFile.T -> SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent
 paused file cont = dkSwitch never (arr trigger >>> notYet) nextSF
   where
     trigger (uiEv, _) = transition (Paused file) (fromEvent uiEv)
@@ -58,7 +65,7 @@ paused file cont = dkSwitch never (arr trigger >>> notYet) nextSF
 
 transition :: PlayerState
            -> UICmd
-           -> Event (SF UIEvent MidiEvent -> SF UIEvent MidiEvent)
+           -> Event (SF UIEvent PlayerEvent -> SF UIEvent PlayerEvent)
 transition state uiCmd = case (state, uiCmd) of
   (_           , LoadMidi file) -> Event $ stopped file
   (Playing file, Stop)          -> Event $ stopped file
