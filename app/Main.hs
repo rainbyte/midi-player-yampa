@@ -135,15 +135,19 @@ main = do
   selectedId <- readLn :: IO Int
   eStream <- PM.openOutput selectedId 0
   case eStream of
-    Left stream -> mainYampa stream
+    Left stream -> do
+      cmdVar <- newEmptyMVar
+      _ <- forkIO $ mainYampa cmdVar stream
+      gtkGUI cmdVar
+      _ <- PM.close stream
+      _ <- PM.terminate
+      exitSuccess
     Right err -> do
       _ <- error $ show err
       exitFailure
 
-mainYampa :: PM.PMStream -> IO ()
-mainYampa stream = do
-  cmdVar <- newEmptyMVar
-  _ <- forkIO $ gtkGUI cmdVar
+mainYampa :: MVar UICmd -> PM.PMStream -> IO ()
+mainYampa cmdVar stream = do
   t <- getCurrentTime
   timeRef <- newIORef t
   let inputSense :: Bool -> IO (DTime, Maybe UIEvent)
@@ -157,6 +161,4 @@ mainYampa stream = do
         pure (realToFrac dt, Just $ Event cmd)
   semStream <- newQSem 1
   reactimate initialize inputSense (outputActuate semStream stream) midiPlayer
-  _ <- PM.close stream
-  _ <- PM.terminate
-  exitSuccess
+  pure ()
