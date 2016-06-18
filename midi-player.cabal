@@ -31,6 +31,8 @@ executable midi-player-exe
   build-depends:       base
                      , bytestring
                      , directory
+                     , gi-gtk
+                     , haskell-gi-base
                      , midi
                      , midi-player
                      , PortMidi

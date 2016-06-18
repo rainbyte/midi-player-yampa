@@ -1,12 +1,17 @@
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import           Control.Concurrent
 import           Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe
+import           Data.GI.Base
 import           Data.IORef
 import           Data.Time.Clock
 import           FRP.Yampa
+import qualified GI.Gtk as Gtk
 import           Sound.MidiPlayer
 import qualified Sound.MIDI.File.Load as MidiFile.Load
 
@@ -43,47 +48,79 @@ outputActuate streamSem stream _ res =
         putStrLn ("Output: " ++ str)
         pure False
 
-askMidiFile :: IO MidiFile.T
-askMidiFile = askMidiFile' Nothing
-  where
-    askMidiFile' = fromMaybe $ do
-      putStrLn "Enter midifile path:"
-      path <- getLine
-      putStrLn $ "Opening " ++ path
-      exists <- doesFileExist path
-      if exists then do
-        file <- BL.readFile path
-        let mMidifile = MidiFile.Load.maybeFromByteString file
-        case MidiParser.result mMidifile of
-          Left err -> do
-            putStrLn $ "Error " ++ err
-            putStrLn "Try again..."
-            askMidiFile' Nothing
-          Right midifile -> do
-            putStrLn $ "Loading " ++ path
-            pure midifile
-      else do
-        putStrLn $ "File " ++ path ++ " does not exist"
+midiFromPath :: String -> IO (Maybe MidiFile.T)
+midiFromPath path = do
+  putStrLn $ "Opening " ++ path
+  exists <- doesFileExist path
+  if exists then do
+    file <- BL.readFile path
+    let mMidifile = MidiFile.Load.maybeFromByteString file
+    case MidiParser.result mMidifile of
+      Left err -> do
+        putStrLn $ "Error " ++ err
         putStrLn "Try again..."
-        askMidiFile' Nothing
+        pure Nothing
+      Right midifile -> do
+        putStrLn $ "Loading " ++ path
+        pure $ Just midifile
+  else do
+    putStrLn $ "File " ++ path ++ " does not exist"
+    putStrLn "Try again..."
+    pure Nothing
 
-askCmd :: MVar UICmd -> IO ()
-askCmd cmdVar = forever $ do
-  putStrLn "\nEnter cmd:"
-  cmd <- getLine
-  uiCmd <- case cmd of
-    "load" -> do
-      midifile <- askMidiFile
-      pure $ LoadMidi midifile
-    "playPause" -> do
-      putStrLn "Pressed Play/Pause button"
-      pure PlayPause
-    "stop" -> do
-      putStrLn "Pressed Stop button"
-      pure Stop
-    _ ->
-      pure NoCmd
-  putMVar cmdVar uiCmd
+gtkGUI :: MVar UICmd -> IO ()
+gtkGUI cmdVar = do
+  _ <- Gtk.init Nothing
+
+  win <- new Gtk.Window [ #title := "MIDI Player" ]
+  _ <- on win #destroy Gtk.mainQuit
+
+  box <- new Gtk.ButtonBox [ ]
+
+  buttonLoad <- new Gtk.Button [ #label := "⏏" ]
+  _ <- on buttonLoad #clicked cbButtonLoad
+  #add box buttonLoad
+
+  buttonPlay <- new Gtk.Button [ #label := "⏯" ]
+  _ <- on buttonPlay #clicked cbButtonPlay
+  #add box buttonPlay
+
+  buttonStop <- new Gtk.Button [ #label := "⏹" ]
+  _ <- on buttonStop #clicked cbButtonStop
+  #add box buttonStop
+
+  #add win box
+
+  #showAll win
+
+  Gtk.main
+
+  where
+    cbButtonLoad = do
+      filechooser <- new Gtk.FileChooserDialog
+        [ #title := "Open MIDI file"
+        , #action := Gtk.FileChooserActionOpen
+        ]
+      _ <- #addButton filechooser "Cancel"
+             (fromIntegral $ fromEnum Gtk.ResponseTypeCancel)
+      _ <- #addButton filechooser "Accept"
+             (fromIntegral $ fromEnum Gtk.ResponseTypeAccept)
+
+      response <- #run filechooser
+      if (response == (fromIntegral $ fromEnum Gtk.ResponseTypeAccept))
+      then do
+        mFilename <- #getFilename filechooser
+        case mFilename of
+          Just filename -> do
+            mMidifile <- midiFromPath filename
+            case mMidifile of
+              Just midifile -> putMVar cmdVar (LoadMidi midifile)
+              Nothing -> pure ()
+          Nothing -> pure ()
+      else pure ()
+      #close filechooser
+    cbButtonPlay = putMVar cmdVar PlayPause
+    cbButtonStop = putMVar cmdVar Stop
 
 main :: IO ()
 main = do
@@ -98,15 +135,19 @@ main = do
   selectedId <- readLn :: IO Int
   eStream <- PM.openOutput selectedId 0
   case eStream of
-    Left stream -> mainYampa stream
+    Left stream -> do
+      cmdVar <- newEmptyMVar
+      _ <- forkIO $ mainYampa cmdVar stream
+      gtkGUI cmdVar
+      _ <- PM.close stream
+      _ <- PM.terminate
+      exitSuccess
     Right err -> do
       _ <- error $ show err
       exitFailure
 
-mainYampa :: PM.PMStream -> IO ()
-mainYampa stream = do
-  cmdVar <- newEmptyMVar
-  _ <- forkIO $ askCmd cmdVar
+mainYampa :: MVar UICmd -> PM.PMStream -> IO ()
+mainYampa cmdVar stream = do
   t <- getCurrentTime
   timeRef <- newIORef t
   let inputSense :: Bool -> IO (DTime, Maybe UIEvent)
@@ -120,6 +161,4 @@ mainYampa stream = do
         pure (realToFrac dt, Just $ Event cmd)
   semStream <- newQSem 1
   reactimate initialize inputSense (outputActuate semStream stream) midiPlayer
-  _ <- PM.close stream
-  _ <- PM.terminate
-  exitSuccess
+  pure ()
