@@ -107,7 +107,7 @@ gtkGUI cmdVar = do
              (fromIntegral $ fromEnum Gtk.ResponseTypeAccept)
 
       response <- #run filechooser
-      if (response == (fromIntegral $ fromEnum Gtk.ResponseTypeAccept))
+      if response == fromIntegral (fromEnum Gtk.ResponseTypeAccept)
       then do
         mFilename <- #getFilename filechooser
         case mFilename of
