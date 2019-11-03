@@ -39,11 +39,11 @@ outputActuate streamSem stream _ res =
         waitQSem streamSem
         err <- PM.writeShort stream (PM.PMEvent (PM.encodeMsg msg) 0)
         signalQSem streamSem
-        if err /= PM.NoError then do
-          putStrLn $ "Error: " ++ show err
-          pure True
-        else
-          pure False
+        case err of
+          Right _    -> pure False
+          Left pmerr -> do
+            putStrLn $ "Error: " ++ show pmerr
+            pure True
       Left str -> do
         putStrLn ("Output: " ++ str)
         pure False
@@ -135,14 +135,14 @@ main = do
   selectedId <- readLn :: IO Int
   eStream <- PM.openOutput selectedId 0
   case eStream of
-    Left stream -> do
+    Right stream -> do
       cmdVar <- newEmptyMVar
       _ <- forkIO $ mainYampa cmdVar stream
       gtkGUI cmdVar
       _ <- PM.close stream
       _ <- PM.terminate
       exitSuccess
-    Right err -> do
+    Left err -> do
       _ <- error $ show err
       exitFailure
 
