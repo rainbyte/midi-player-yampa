@@ -39,6 +39,34 @@ packages:
   original:
     git: https://github.com/rainbyte/midi-portmidi
     commit: f9a4b468169c23733cc8a0d0928a86377a8b549c
+- completed:
+    size: 88815
+    url: https://github.com/lettier/webviewhs/archive/21ddd4b4872b2e7eb50c9735e70cfbdedf2c6c1a.tar.gz
+    cabal-file:
+      size: 1862
+      sha256: 062cbd93fd45d1d4936447ce696a91303fc046d84172ddc5c05badbbe23bf48c
+    name: webviewhs
+    version: 0.1.0.0
+    sha256: 22ae32733f4d6ee9d2426bbac744738d501daff3cb3634fc8e95b8de15d3655d
+    pantry-tree:
+      size: 4168
+      sha256: 3b13369a771be7e6b7554ae23b311f80e256c8dece6cbf69674a7c63bcedde61
+  original:
+    url: https://github.com/lettier/webviewhs/archive/21ddd4b4872b2e7eb50c9735e70cfbdedf2c6c1a.tar.gz
+- completed:
+    hackage: jmacro-0.6.17@sha256:3a1e6ae8e1c3f8d9984036f27b2207f532655f93740e0c90b253dcace33c9679,2901
+    pantry-tree:
+      size: 919
+      sha256: 00a46e94050d54f8d05b3e22a47bb938adbc68ffe68306d6ee6938ec2cafbdfa
+  original:
+    hackage: jmacro-0.6.17@sha256:3a1e6ae8e1c3f8d9984036f27b2207f532655f93740e0c90b253dcace33c9679,2901
+- completed:
+    hackage: text-format-heavy-0.1.5.3@sha256:abbc5f0c4883328df4058cf2145820eaf41c35d1af9cdacc50fc2e4c2bd15dda,2755
+    pantry-tree:
+      size: 1256
+      sha256: a26845b08d0d78894b1df747eceb3907515e9be208dd239c4a8083e7f6bf804e
+  original:
+    hackage: text-format-heavy-0.1.5.3@sha256:abbc5f0c4883328df4058cf2145820eaf41c35d1af9cdacc50fc2e4c2bd15dda,2755
 snapshots:
 - completed:
     size: 545658

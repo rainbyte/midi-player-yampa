@@ -14,6 +14,10 @@ extra-deps:
 - simple-affine-space-0.1@sha256:09e582f2e12ce9feb251cbdacec57fa1f4a838ec63928026d98b758e89f9abd7,1931
 - git: https://github.com/rainbyte/midi-portmidi
   commit: f9a4b468169c23733cc8a0d0928a86377a8b549c
+- github: lettier/webviewhs
+  commit: 21ddd4b4872b2e7eb50c9735e70cfbdedf2c6c1a
+- jmacro-0.6.17@sha256:3a1e6ae8e1c3f8d9984036f27b2207f532655f93740e0c90b253dcace33c9679,2901
+- text-format-heavy-0.1.5.3@sha256:abbc5f0c4883328df4058cf2145820eaf41c35d1af9cdacc50fc2e4c2bd15dda,2755
 #- event-list-0.1.1.3
 #- midi-0.2.2.1
 #- monoid-transformer-0.0.3

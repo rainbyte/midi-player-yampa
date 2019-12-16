@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main where
 
@@ -7,11 +9,14 @@ import           Control.Concurrent
 import           Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe
-import           Data.GI.Base
 import           Data.IORef
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import qualified Data.Text.Read as TR
 import           Data.Time.Clock
 import           FRP.Yampa
-import qualified GI.Gtk as Gtk
+import qualified Graphics.UI.Webviewhs as WHS
+import           Language.Javascript.JMacro
 import           Sound.MidiPlayer
 import qualified Sound.MIDI.File.Load as MidiFile.Load
 
@@ -23,10 +28,10 @@ import           System.Directory
 import           System.Exit
 
 initialize :: IO UIEvent
-initialize = putStrLn "Initialize" >> pure (Event Stop)
+initialize = putStrLn "Initialize engine" >> pure (Event Stop)
 
-outputActuate :: QSem -> PM.PMStream -> Bool -> MidiEvent -> IO Bool
-outputActuate streamSem stream _ res =
+outputActuate :: QSem -> MVar Int -> [PM.PMStream] -> Bool -> MidiEvent -> IO Bool
+outputActuate streamSem streamVar streams _ res =
   case res of
     Event msgs ->
       foldM handleMsg False msgs
@@ -37,6 +42,8 @@ outputActuate streamSem stream _ res =
     handleMsg False eMsg = case eMsg of
       Right msg -> do
         waitQSem streamSem
+        streamId <- readMVar streamVar
+        let stream = streams !! streamId
         err <- PM.writeShort stream (PM.PMEvent (PM.encodeMsg msg) 0)
         signalQSem streamSem
         case err of
@@ -68,86 +75,75 @@ midiFromPath path = do
     putStrLn "Try again..."
     pure Nothing
 
-gtkGUI :: MVar UICmd -> IO ()
-gtkGUI cmdVar = do
-  _ <- Gtk.init Nothing
-
-  win <- new Gtk.Window [ #title := "MIDI Player" ]
-  _ <- on win #destroy Gtk.mainQuit
-
-  box <- new Gtk.ButtonBox [ ]
-
-  buttonLoad <- new Gtk.Button [ #label := "⏏" ]
-  _ <- on buttonLoad #clicked cbButtonLoad
-  #add box buttonLoad
-
-  buttonPlay <- new Gtk.Button [ #label := "⏯" ]
-  _ <- on buttonPlay #clicked cbButtonPlay
-  #add box buttonPlay
-
-  buttonStop <- new Gtk.Button [ #label := "⏹" ]
-  _ <- on buttonStop #clicked cbButtonStop
-  #add box buttonStop
-
-  #add win box
-
-  #showAll win
-
-  Gtk.main
-
-  where
-    cbButtonLoad = do
-      filechooser <- new Gtk.FileChooserDialog
-        [ #title := "Open MIDI file"
-        , #action := Gtk.FileChooserActionOpen
-        ]
-      _ <- #addButton filechooser "Cancel"
-             (fromIntegral $ fromEnum Gtk.ResponseTypeCancel)
-      _ <- #addButton filechooser "Accept"
-             (fromIntegral $ fromEnum Gtk.ResponseTypeAccept)
-
-      response <- #run filechooser
-      if response == fromIntegral (fromEnum Gtk.ResponseTypeAccept)
-      then do
-        mFilename <- #getFilename filechooser
-        case mFilename of
-          Just filename -> do
-            mMidifile <- midiFromPath filename
-            case mMidifile of
-              Just midifile -> putMVar cmdVar (LoadMidi midifile)
-              Nothing -> pure ()
-          Nothing -> pure ()
-      else pure ()
-      #close filechooser
-    cbButtonPlay = putMVar cmdVar PlayPause
-    cbButtonStop = putMVar cmdVar Stop
+htmlGUI :: MVar UICmd -> MVar Int -> [(String, PM.PMStream)] -> IO ()
+htmlGUI cmdVar streamVar streams = void $ do
+  dir <- getCurrentDirectory
+  WHS.withWindowLoop
+    WHS.WindowParams
+      { WHS.windowParamsTitle = "midi-player-hs"
+      , WHS.windowParamsUri = T.pack $ "file://" ++ dir ++ "/app/Main.html"
+      , WHS.windowParamsWidth = 600
+      , WHS.windowParamsHeight = 340
+      , WHS.windowParamsResizable = False
+      , WHS.windowParamsDebuggable = True
+      }
+    handleJSRequest
+    (WHS.WithWindowLoopSetUp    (\ _window -> do
+      putStrLn "Initialize GUI"
+      -- Add output ports to combobox
+      forM_ (zip ([1..]::[Int]) streams) $ \(idx, (name,_)) ->
+        WHS.runJavaScript _window [jmacro| portAdd(`idx`, `name`); |]))
+    (WHS.WithWindowLoopTearDown (void . pure . const))
+    windowCallback
+ where
+  handleJSRequest window request = case request of
+    "load"      -> WHS.withWindowOpenDialog
+      window
+      "Open MIDI file"
+      False
+      openMidiFile
+    "playpause" -> putMVar cmdVar PlayPause
+    "stop"      -> putMVar cmdVar Stop
+    (T.stripPrefix "port" -> Just suf) ->
+      case TR.decimal suf of
+        Right (idx, _) -> do
+          _ <- swapMVar streamVar idx
+          TIO.putStrLn $ "Selected port" <> suf
+        _ -> pure ()
+    _ -> pure ()
+  windowCallback _ = pure True
+  openMidiFile filename = do
+    mMidifile <- midiFromPath $ T.unpack filename
+    case mMidifile of
+      Just midifile -> putMVar cmdVar (LoadMidi midifile)
+      Nothing -> pure ()
 
 main :: IO ()
 main = do
   _ <- PM.initialize
   deviceCount <- PM.countDevices
   putStrLn "Output devices:"
-  forM_ [0..deviceCount - 1] $ \deviceId -> do
+  streams <- fmap catMaybes $ forM [0..deviceCount - 1] $ \deviceId -> do
     info <- PM.getDeviceInfo deviceId
     when (PM.output info) $
       putStrLn $ "  " ++ show deviceId ++ ". " ++ PM.name info
-  putStr "Select: "
-  selectedId <- readLn :: IO Int
-  eStream <- PM.openOutput selectedId 0
-  case eStream of
-    Right stream -> do
+    eStream <- PM.openOutput deviceId 0
+    pure $ either (const Nothing) (\stream -> pure (PM.name info, stream)) eStream
+  case streams of
+    _:_ -> do
       cmdVar <- newEmptyMVar
-      _ <- forkIO $ mainYampa cmdVar stream
-      gtkGUI cmdVar
-      _ <- PM.close stream
+      streamVar <- newMVar 0
+      _ <- forkIO $ mainYampa cmdVar streamVar (fmap snd streams)
+      htmlGUI cmdVar streamVar streams
+      forM_ streams (PM.close . snd)
       _ <- PM.terminate
       exitSuccess
-    Left err -> do
-      _ <- error $ show err
+    [] -> do
+      _ <- error "Output device not available"
       exitFailure
 
-mainYampa :: MVar UICmd -> PM.PMStream -> IO ()
-mainYampa cmdVar stream = do
+mainYampa :: MVar UICmd -> MVar Int -> [PM.PMStream] -> IO ()
+mainYampa cmdVar stream streams = do
   t <- getCurrentTime
   timeRef <- newIORef t
   let inputSense :: Bool -> IO (DTime, Maybe UIEvent)
@@ -160,5 +156,5 @@ mainYampa cmdVar stream = do
         let cmd = fromMaybe NoCmd mCmd
         pure (realToFrac dt, Just $ Event cmd)
   semStream <- newQSem 1
-  reactimate initialize inputSense (outputActuate semStream stream) midiPlayer
+  reactimate initialize inputSense (outputActuate semStream stream streams) midiPlayer
   pure ()

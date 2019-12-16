@@ -31,12 +31,13 @@ executable midi-player-exe
   build-depends:       base
                      , bytestring
                      , directory
-                     , gi-gtk
-                     , haskell-gi-base
+                     , jmacro
                      , midi
                      , midi-player
                      , PortMidi
+                     , text
                      , time
+                     , webviewhs
                      , Yampa
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
