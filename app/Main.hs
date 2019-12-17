@@ -11,7 +11,6 @@ import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe
 import           Data.IORef
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Text.Read as TR
 import           Data.Time.Clock
 import           FRP.Yampa
@@ -78,40 +77,54 @@ midiFromPath path = do
 htmlGUI :: MVar UICmd -> MVar Int -> [(String, PM.PMStream)] -> IO ()
 htmlGUI cmdVar streamVar streams = void $ do
   dir <- getCurrentDirectory
-  WHS.withWindowLoop
-    WHS.WindowParams
-      { WHS.windowParamsTitle = "midi-player-hs"
-      , WHS.windowParamsUri = T.pack $ "file://" ++ dir ++ "/app/Main.html"
-      , WHS.windowParamsWidth = 600
-      , WHS.windowParamsHeight = 340
-      , WHS.windowParamsResizable = False
-      , WHS.windowParamsDebuggable = True
-      }
-    handleJSRequest
-    (WHS.WithWindowLoopSetUp    (\ _window -> do
-      putStrLn "Initialize GUI"
-      -- Add output ports to combobox
-      forM_ (zip ([1..]::[Int]) streams) $ \(idx, (name,_)) ->
-        WHS.runJavaScript _window [jmacro| portAdd(`idx`, `name`); |]))
-    (WHS.WithWindowLoopTearDown (void . pure . const))
-    windowCallback
- where
-  handleJSRequest window request = case request of
-    "load"      -> WHS.withWindowOpenDialog
-      window
-      "Open MIDI file"
-      False
-      openMidiFile
+  eitherWindow <- WHS.createWindow (windowParams dir) windowCallback
+  case eitherWindow of
+    Left  _      -> pure ()
+    Right window -> do
+      windowSetup window
+      windowLoop window
+      windowCleanup window
+      WHS.terminateWindowLoop window
+      WHS.destroyWindow window
+  where
+  windowLoop :: WHS.Window a -> IO ()
+  windowLoop window = do
+    timeIni <- getCurrentTime
+    shouldContinue  <- WHS.iterateWindowLoop window False
+    timeEnd <- getCurrentTime
+    let fps = 120
+        elapsed = realToFrac (diffUTCTime timeEnd timeIni) :: Double
+        toMicros = (* 1000000)
+        nextFrame = floor $ toMicros (1/fps - elapsed)
+    when shouldContinue $ do
+      when (nextFrame > 0) (threadDelay nextFrame)
+      windowLoop window
+  windowParams dir = WHS.WindowParams
+    { WHS.windowParamsTitle = "midi-player-hs"
+    , WHS.windowParamsUri = T.pack $ "file://" ++ dir ++ "/app/Main.html"
+    , WHS.windowParamsWidth = 600
+    , WHS.windowParamsHeight = 340
+    , WHS.windowParamsResizable = False
+    , WHS.windowParamsDebuggable = True
+    }
+  windowCallback window request = case request of
+    "load" -> WHS.withWindowOpenDialog window "Open MIDI file" False openMidiFile
     "playpause" -> putMVar cmdVar PlayPause
     "stop"      -> putMVar cmdVar Stop
-    (T.stripPrefix "port" -> Just suf) ->
-      case TR.decimal suf of
-        Right (idx, _) -> do
-          _ <- swapMVar streamVar idx
-          TIO.putStrLn $ "Selected port" <> suf
-        _ -> pure ()
+    (parsePort -> Just idx) -> do
+      _ <- swapMVar streamVar idx
+      putStrLn $ "Selected port" <> show idx
     _ -> pure ()
-  windowCallback _ = pure True
+    where
+    parsePort = (textToInt =<<) . T.stripPrefix "port"
+    textToInt = rightToMaybe . fmap fst . TR.decimal
+    rightToMaybe = either (const Nothing) pure
+  windowSetup window = do
+    putStrLn "Initialize GUI"
+    -- Add output ports to combobox
+    forM_ (zip ([1..]::[Int]) streams) $ \(idx, (name,_)) ->
+      WHS.runJavaScript window [jmacro| portAdd(`idx`, `name`); |]
+  windowCleanup _ = pure ()
   openMidiFile filename = do
     mMidifile <- midiFromPath $ T.unpack filename
     case mMidifile of
